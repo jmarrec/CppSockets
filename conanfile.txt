@@ -1,0 +1,8 @@
+[requires]
+fmt/11.1.4
+boost/1.87.0
+jsoncpp/1.9.6
+
+[generators]
+CMakeToolchain
+CMakeDeps
