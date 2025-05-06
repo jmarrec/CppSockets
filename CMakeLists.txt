@@ -173,6 +173,21 @@ target_link_libraries(http_client_sync_ssl
   OpenSSL::SSL OpenSSL::Crypto
 )
 
+add_executable(reusable_sync_client
+  src/reusable_sync_client.cpp
+  src/http_sync_client/http_sync_ssl_client.hpp
+  src/http_sync_client/http_sync_ssl_client.cpp
+)
+
+target_link_libraries(reusable_sync_client
+  PRIVATE
+  project_options
+  fmt::fmt
+  JsonCpp::JsonCpp
+  boost::boost
+  OpenSSL::SSL OpenSSL::Crypto
+)
+
 # find_package(Python REQUIRED COMPONENTS Interpreter)
 #
 # add_test(NAME OpenStudioCLI.Labs.Run_PythonOnly
