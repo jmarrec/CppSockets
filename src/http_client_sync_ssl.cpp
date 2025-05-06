@@ -25,6 +25,7 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/url.hpp>
 #include <cstdlib>
 #include <iostream>
 
@@ -37,6 +38,33 @@ namespace http = beast::http;    // from <boost/beast/http.hpp>
 namespace net = boost::asio;     // from <boost/asio.hpp>
 namespace ssl = net::ssl;        // from <boost/asio/ssl.hpp>
 using tcp = net::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
+
+template <>
+struct fmt::formatter<boost::urls::url>
+{
+  constexpr auto parse(format_parse_context& ctx) {
+    return ctx.begin();
+  }
+
+  template <typename FormatContext>
+  auto format(const boost::urls::url& u, FormatContext& ctx) const {
+    return fmt::format_to(ctx.out(),
+                          "url       : {}\n"
+                          "scheme    : {}\n"
+                          "authority : {}\n"
+                          "userinfo  : {}\n"
+                          "user      : {}\n"
+                          "password  : {}\n"
+                          "host      : {}\n"
+                          "port      : {}\n"
+                          "path      : {}\n"
+                          "query     : {}\n"
+                          "fragment  : {}\n"
+                          "target    : {}\n",
+                          u.buffer(), u.scheme(), u.encoded_authority(), u.encoded_userinfo(), u.encoded_user(), u.encoded_password(),
+                          u.encoded_host(), u.port(), u.encoded_path(), u.encoded_query(), u.encoded_fragment(), u.encoded_target());
+  }
+};
 
 void load_root_certificates(ssl::context& ctx) {
 
@@ -67,13 +95,18 @@ void load_root_certificates(ssl::context& ctx) {
   boost::system::error_code ec;
   ctx.add_certificate_authority(boost::asio::buffer(cert.data(), cert.size()), ec);
   if (ec) {
+    throw std::runtime_error(fmt::format("Failed to load root certificate: {}", ec.message()));
     return;
   }
 }
 
+static constexpr std::string_view HOST = "bcl.nrel.gov";
+static int PORT = 443;
+
 // Performs an HTTP GET and prints the response
-int main(int argc, char** argv) {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
   try {
+#if 0
     // Check command line arguments.
     if (argc != 4 && argc != 5) {
       std::cerr << "Usage: http-client-sync-ssl <host> <port> <target> [<HTTP version: 1.0 or 1.1(default)>]\n"
@@ -86,6 +119,12 @@ int main(int argc, char** argv) {
     auto const port = argv[2];
     auto const target = argv[3];
     int version = argc == 5 && !std::strcmp("1.0", argv[4]) ? 10 : 11;
+#else
+    int version = 11;
+    auto const host = HOST.data();
+    auto const port = std::to_string(PORT);
+    [[maybe_unused]] auto const target = "/api/metasearch/AEDG-SmOffice.json";
+#endif
 
     // The io_context is required for all I/O
     net::io_context ioc;
@@ -93,11 +132,17 @@ int main(int argc, char** argv) {
     // The SSL context is required, and holds certificates
     ssl::context ctx(ssl::context::tlsv12_client);
 
+#if 0
+
     // This holds the root certificate used for verification
     // load_root_certificates(ctx);
 
     // Verify the remote server's certificate
     ctx.set_verify_mode(ssl::verify_none);  //verify_peer, verify_none
+#else
+    load_root_certificates(ctx);
+    ctx.set_verify_mode(ssl::verify_peer);  //verify_peer, verify_none
+#endif
 
     // These objects perform our I/O
     tcp::resolver resolver(ioc);
@@ -120,8 +165,19 @@ int main(int argc, char** argv) {
     // Perform the SSL handshake
     stream.handshake(ssl::stream_base::client);
 
+    boost::urls::url url;
+    url.set_scheme("https");
+    url.set_host(host);
+    url.segments().assign({"api", "metasearch", "AEDG-SmOffice.json"});
+
+    // Add query parameters
+    url.params().append(boost::urls::param_view{"fq", "bundle:component"});
+    url.params().append(boost::urls::param_view{"fq", "component_tags:Window"});
+
+    fmt::print("{}\n", url);
+
     // Set up an HTTP GET request message
-    http::request<http::string_body> req{http::verb::get, target, version};
+    http::request<http::string_body> req{http::verb::get, url.encoded_target(), version};
     req.set(http::field::host, host);
     req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 
@@ -163,11 +219,14 @@ int main(int argc, char** argv) {
     // Receive the HTTP response
     http::read(stream, buffer, res);
 
+    fmt::print("Status: int={}\n", res.result_int());
+
     // Write the message to standard out
     // std::cout << res << std::endl;
     if (res.result() == http::status::ok) {
       Json::Value& root = res.body();
-      fmt::print("Found {} results\n", root["total_results"].asInt());
+      fmt::print("Found {} results\n", root["result_count"].asInt());
+      fmt::print("res.body()={}\n", res.body().toStyledString());
     }
 
 #endif
